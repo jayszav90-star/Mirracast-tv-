@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>MirrorCast TV</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #060610; --surface: #0f0f1e; --accent: #7c5cfc; --accent2: #00e5ff;
+  --text: #e8e4ff; --muted: #6b6890; --success: #00e5a0; --danger: #ff4d4d;
+}
+html, body { height:100%; background:var(--bg); color:var(--text); overflow:hidden; font-family:'Segoe UI',system-ui,sans-serif; }
+
+#video-wrap { position:fixed; inset:0; background:#000; display:none; z-index:5; }
+#rv { width:100%; height:100%; object-fit:contain; display:block; }
+#live-badge { position:absolute; top:16px; right:16px; background:rgba(255,40,40,.88); padding:5px 14px; border-radius:6px; font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; }
+.live-dot { width:7px; height:7px; border-radius:50%; background:#fff; animation:bl 1s infinite; }
+@keyframes bl { 0%,100%{opacity:1}50%{opacity:.3} }
+
+#pause-screen { position:fixed; inset:0; background:#000; z-index:10; display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; }
+.pause-logo { font-size:48px; }
+.pause-text { font-size:20px; font-weight:700; color:rgba(255,255,255,.6); }
+.pause-sub { font-size:13px; color:rgba(255,255,255,.3); }
+
+#name-setup { position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:32px; background:radial-gradient(ellipse at 50% 0%, rgba(124,92,252,.15) 0%, transparent 60%); }
+.setup-box { background:rgba(15,15,30,.98); border:1px solid rgba(124,92,252,.25); border-radius:20px; padding:40px; width:100%; max-width:500px; text-align:center; }
+.setup-icon { font-size:48px; margin-bottom:16px; }
+.setup-title { font-size:22px; font-weight:800; margin-bottom:8px; }
+.setup-sub { font-size:13px; color:var(--muted); margin-bottom:24px; line-height:1.5; }
+.preset-names { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:20px; }
+.preset { padding:8px 16px; background:rgba(124,92,252,.1); border:1px solid rgba(124,92,252,.25); border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; color:var(--accent); transition:all .15s; }
+.preset:hover { background:rgba(124,92,252,.25); }
+.setup-inp { width:100%; padding:14px 16px; background:rgba(255,255,255,.06); border:2px solid rgba(124,92,252,.3); border-radius:12px; color:var(--text); font-size:18px; font-weight:700; text-align:center; outline:none; font-family:inherit; margin-bottom:8px; }
+.setup-inp:focus { border-color:var(--accent); }
+.setup-hint { font-size:11px; color:var(--muted); margin-bottom:24px; }
+.setup-btn { width:100%; padding:14px; background:var(--accent); color:white; border:none; border-radius:12px; font-size:16px; font-weight:800; cursor:pointer; font-family:inherit; box-shadow:0 4px 20px rgba(124,92,252,.35); }
+.setup-btn:hover { background:#8d6dff; }
+
+#waiting-screen { position:fixed; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:14px; background:radial-gradient(ellipse at 50% 0%, rgba(124,92,252,.18) 0%, transparent 65%); text-align:center; padding:32px; }
+.wait-logo { width:72px; height:72px; border-radius:20px; background:linear-gradient(135deg,var(--accent),var(--accent2)); display:flex; align-items:center; justify-content:center; font-size:36px; box-shadow:0 8px 32px rgba(124,92,252,.4); }
+.wait-title { font-size:28px; font-weight:800; }
+.wait-tv-name { font-size:18px; color:var(--accent2); font-weight:700; }
+.wait-chip { display:flex; align-items:center; gap:10px; padding:12px 24px; background:rgba(124,92,252,.1); border:1px solid rgba(124,92,252,.2); border-radius:12px; font-size:14px; font-weight:700; }
+.wdot { width:10px; height:10px; border-radius:50%; background:var(--success); box-shadow:0 0 10px var(--success); animation:pulse 2s infinite; }
+.wdot.spin { background:var(--accent2); box-shadow:0 0 10px var(--accent2); }
+.wdot.err { background:var(--danger); box-shadow:0 0 10px var(--danger); animation:none; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)} }
+.wait-sub { font-size:13px; color:var(--muted); max-width:420px; line-height:1.6; }
+.wait-ip { font-family:'Courier New',monospace; font-size:12px; color:var(--muted); background:rgba(255,255,255,.04); padding:8px 16px; border-radius:8px; border:1px solid rgba(255,255,255,.07); }
+.wait-ip strong { color:var(--text); }
+
+#manual-section { display:flex; flex-direction:column; align-items:center; gap:8px; width:100%; max-width:360px; margin-top:4px; }
+.manual-lbl { font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--muted); text-transform:uppercase; }
+.manual-row { display:flex; gap:8px; width:100%; }
+.manual-inp { flex:1; padding:11px 13px; background:rgba(255,255,255,.06); border:1px solid rgba(124,92,252,.2); border-radius:9px; color:var(--text); font-size:14px; outline:none; font-family:'Courier New',monospace; }
+.manual-inp:focus { border-color:var(--accent); }
+.manual-btn { padding:11px 18px; background:var(--accent); color:white; border:none; border-radius:9px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
+.rename-btn { background:transparent; border:1px solid rgba(255,255,255,.1); color:var(--muted); padding:6px 14px; border-radius:7px; cursor:pointer; font-size:12px; font-family:inherit; }
+.rename-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+#dc-btn { position:fixed; bottom:20px; right:20px; z-index:20; background:rgba(255,77,77,.85); color:white; border:none; padding:10px 22px; border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; display:none; font-family:inherit; }
+</style>
+</head>
+<body>
+
+<div id="name-setup">
+  <div class="setup-box">
+    <div class="setup-icon">📺</div>
+    <div class="setup-title">Name This TV</div>
+    <div class="setup-sub">Give this TV a name so your PC finds it automatically on the network. You only do this once.</div>
+    <div class="preset-names">
+      <div class="preset" onclick="setPreset('Waiting Room TV')">Waiting Room TV</div>
+      <div class="preset" onclick="setPreset('Operatory TV')">Operatory TV</div>
+      <div class="preset" onclick="setPreset('Reception TV')">Reception TV</div>
+      <div class="preset" onclick="setPreset('Conference TV')">Conference TV</div>
+      <div class="preset" onclick="setPreset('Break Room TV')">Break Room TV</div>
+    </div>
+    <input class="setup-inp" id="tv-name-inp" placeholder="e.g. Waiting Room TV" maxlength="32"/>
+    <div class="setup-hint">Tap a preset or type a custom name</div>
+    <button class="setup-btn" onclick="saveTVName()">✅ Save &amp; Start</button>
+  </div>
+</div>
+
+<div id="waiting-screen">
+  <div class="wait-logo">📡</div>
+  <div class="wait-title">MirrorCast</div>
+  <div class="wait-tv-name" id="wait-tv-name">TV</div>
+  <div class="wait-chip">
+    <div class="wdot spin" id="wdot"></div>
+    <span id="wstatus">Starting…</span>
+  </div>
+  <div class="wait-sub">Open MirrorCast on your PC → click <strong>Scan for TVs</strong> — this TV will appear by name. Or enter the PC's IP address below.</div>
+  <div class="wait-ip" id="wait-ip">Detecting IP…</div>
+  <div id="manual-section">
+    <div class="manual-lbl">Enter PC IP address to connect</div>
+    <div class="manual-row">
+      <input class="manual-inp" id="pc-ip" placeholder="192.168.1.XXX" type="text"/>
+      <button class="manual-btn" onclick="manualConnect()">Connect</button>
+    </div>
+  </div>
+  <button class="rename-btn" onclick="renameTv()">✏️ Rename this TV</button>
+</div>
+
+<div id="video-wrap">
+  <video id="rv" autoplay playsinline></video>
+  <div id="live-badge"><div class="live-dot"></div>LIVE</div>
+</div>
+
+<div id="pause-screen">
+  <div class="pause-logo">⏸</div>
+  <div class="pause-text">Presenter paused</div>
+  <div class="pause-sub">Stream will resume shortly…</div>
+</div>
+
+<button id="dc-btn" onclick="disconnect()">✕ Disconnect</button>
+
+<script>
+// ── Constants & state ─────────────────────────────────────────────────────────
+const TV_NAME_KEY = 'mc_tv_name';
+const TV_ID_KEY   = 'mc_tv_id';
+const PC_IP_KEY   = 'mc_pc_ip';
+
+let tvName = localStorage.getItem(TV_NAME_KEY) || '';
+let tvId   = localStorage.getItem(TV_ID_KEY)   || mkId();
+let ws     = null;
+let peerConn = null;
+let roomCode  = 'AUTO-' + tvId;
+let reconnTimer = null;
+let lastPcIP    = localStorage.getItem(PC_IP_KEY) || '';
+
+function mkId() {
+  const id = 'tv-' + Math.random().toString(36).substr(2,9);
+  localStorage.setItem(TV_ID_KEY, id);
+  return id;
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+function init() {
+  if (!tvName) {
+    show('name-setup');
+  } else {
+    show('waiting-screen');
+    document.getElementById('wait-tv-name').textContent = tvName;
+    getLocalIP().then(ip => {
+      if (ip) document.getElementById('wait-ip').innerHTML = `This TV's IP: <strong>${ip}</strong>`;
+    });
+    if (lastPcIP) {
+      document.getElementById('pc-ip').value = lastPcIP;
+      setTimeout(() => connectToPC(lastPcIP), 600);
+    } else {
+      setStatus('Enter PC IP address below to connect', 'ready');
+    }
+  }
+}
+
+// ── Name setup ────────────────────────────────────────────────────────────────
+function setPreset(n) { document.getElementById('tv-name-inp').value = n; }
+function saveTVName() {
+  const v = document.getElementById('tv-name-inp').value.trim();
+  if (!v) { alert('Please enter a name'); return; }
+  tvName = v;
+  localStorage.setItem(TV_NAME_KEY, tvName);
+  document.getElementById('wait-tv-name').textContent = tvName;
+  show('waiting-screen');
+  getLocalIP().then(ip => {
+    if (ip) document.getElementById('wait-ip').innerHTML = `This TV's IP: <strong>${ip}</strong>`;
+  });
+  setStatus('Ready — enter PC IP address below', 'ready');
+}
+function renameTv() { localStorage.removeItem(TV_NAME_KEY); location.reload(); }
+
+// ── Manual connect ────────────────────────────────────────────────────────────
+function manualConnect() {
+  const ip = document.getElementById('pc-ip').value.trim();
+  if (!ip) { setStatus('Please enter the PC IP address', 'err'); return; }
+  localStorage.setItem(PC_IP_KEY, ip);
+  lastPcIP = ip;
+  connectToPC(ip);
+}
+
+// ── WebSocket connection to PC ────────────────────────────────────────────────
+function connectToPC(ip) {
+  clearTimeout(reconnTimer);
+  setStatus('Connecting to PC at ' + ip + '…', 'spin');
+
+  if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+
+  // Connect to socket.io server on the PC using raw WebSocket
+  const url = `ws://${ip}:9001/socket.io/?EIO=4&transport=websocket`;
+  try { ws = new WebSocket(url); } catch(e) { setStatus('Invalid IP address', 'err'); return; }
+
+  ws.onopen = () => {
+    // Socket.IO v4 handshake — send connect packet
+    ws.send('40');
+  };
+
+  ws.onmessage = (e) => {
+    const d = e.data;
+    if (d === '2') { ws.send('3'); return; } // heartbeat
+    if (d.startsWith('0')) {
+      // Probe response — now join room and announce TV
+      ws.send('42' + JSON.stringify(['join-room', { roomCode, role: 'receiver' }]));
+      ws.send('42' + JSON.stringify(['announce', { name: tvName, id: tvId, type: 'tv' }]));
+      setStatus('Connected — waiting for PC to start stream', 'ready');
+      localStorage.setItem(PC_IP_KEY, ip);
+      return;
+    }
+    if (!d.startsWith('42')) return;
+    try {
+      const [event, msg] = JSON.parse(d.slice(2));
+      if (event === 'peer-joined' && msg && msg.role === 'sender') {
+        setStatus('PC connected! Setting up stream…', 'spin');
+      }
+      if (event === 'signal')   handleSignal(msg);
+      if (event === 'control')  handleControl(msg);
+      if (event === 'peer-left') {
+        setStatus('PC disconnected — will reconnect…', 'spin');
+        showWaiting();
+        scheduleReconnect(ip);
+      }
+    } catch(err) {}
+  };
+
+  ws.onerror = () => setStatus('Cannot reach PC at ' + ip + ' — check IP', 'err');
+
+  ws.onclose = () => {
+    if (!isStreaming()) {
+      setStatus('Connection lost — retrying in 4s…', 'spin');
+      scheduleReconnect(ip);
+    }
+  };
+}
+
+function scheduleReconnect(ip) {
+  clearTimeout(reconnTimer);
+  reconnTimer = setTimeout(() => connectToPC(ip), 4000);
+}
+
+function emit(ev, data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send('42' + JSON.stringify([ev, data]));
+  }
+}
+
+// ── WebRTC ────────────────────────────────────────────────────────────────────
+async function handleSignal({ type, sdp, candidate }) {
+  if (type === 'offer') {
+    await setupPeer();
+    await peerConn.setRemoteDescription(new RTCSessionDescription({ type, sdp }));
+    const answer = await peerConn.createAnswer();
+    await peerConn.setLocalDescription(answer);
+    emit('signal', { roomCode, type: 'answer', sdp: answer.sdp });
+  } else if (type === 'candidate' && candidate) {
+    try { if (peerConn) await peerConn.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
+  }
+}
+
+async function setupPeer() {
+  if (peerConn) peerConn.close();
+  peerConn = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }
+    ]
+  });
+  peerConn.onicecandidate = ({ candidate }) => {
+    if (candidate) emit('signal', { roomCode, type: 'candidate', candidate });
+  };
+  peerConn.ontrack = e => {
+    const v = document.getElementById('rv');
+    if (v.srcObject !== e.streams[0]) {
+      v.srcObject = e.streams[0];
+      v.play().catch(() => {});
+      showStream();
+    }
+  };
+  peerConn.onconnectionstatechange = () => {
+    if (peerConn.connectionState === 'failed' || peerConn.connectionState === 'disconnected') {
+      showWaiting();
+      if (lastPcIP) scheduleReconnect(lastPcIP);
+    }
+  };
+}
+
+// ── Control (pause/resume from PC) ────────────────────────────────────────────
+function handleControl({ cmd }) {
+  if (cmd === 'pause') {
+    document.getElementById('video-wrap').style.display   = 'none';
+    document.getElementById('pause-screen').style.display = 'flex';
+  } else if (cmd === 'resume') {
+    document.getElementById('pause-screen').style.display = 'none';
+    document.getElementById('video-wrap').style.display   = 'block';
+  }
+}
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+function show(id) {
+  ['name-setup','waiting-screen','video-wrap','pause-screen'].forEach(s => {
+    document.getElementById(s).style.display = 'none';
+  });
+  document.getElementById(id).style.display = 'flex';
+}
+function showStream() {
+  clearTimeout(reconnTimer);
+  document.getElementById('name-setup').style.display    = 'none';
+  document.getElementById('waiting-screen').style.display = 'none';
+  document.getElementById('pause-screen').style.display  = 'none';
+  document.getElementById('video-wrap').style.display    = 'block';
+  document.getElementById('dc-btn').style.display        = 'block';
+}
+function showWaiting() {
+  document.getElementById('video-wrap').style.display    = 'none';
+  document.getElementById('pause-screen').style.display  = 'none';
+  document.getElementById('waiting-screen').style.display = 'flex';
+  document.getElementById('dc-btn').style.display        = 'none';
+}
+function isStreaming() {
+  return document.getElementById('video-wrap').style.display === 'block';
+}
+function disconnect() {
+  clearTimeout(reconnTimer);
+  if (peerConn) { peerConn.close(); peerConn = null; }
+  if (ws)       { ws.close();       ws       = null; }
+  showWaiting();
+  setStatus('Disconnected — enter PC IP to reconnect', 'ready');
+}
+function setStatus(msg, type) {
+  document.getElementById('wstatus').textContent = msg;
+  const d = document.getElementById('wdot');
+  d.className = 'wdot' + (type === 'spin' ? ' spin' : type === 'err' ? ' err' : '');
+}
+
+// ── Get this TV's local IP ────────────────────────────────────────────────────
+async function getLocalIP() {
+  try {
+    const p = new RTCPeerConnection({ iceServers: [] });
+    p.createDataChannel('');
+    await p.createOffer().then(o => p.setLocalDescription(o));
+    return new Promise(resolve => {
+      p.onicecandidate = e => {
+        if (!e || !e.candidate) return;
+        const m = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
+        if (m && !m[1].startsWith('127')) { p.close(); resolve(m[1]); }
+      };
+      setTimeout(() => resolve(null), 3000);
+    });
+  } catch(e) { return null; }
+}
+
+init();
+</script>
+</body>
+</html>
